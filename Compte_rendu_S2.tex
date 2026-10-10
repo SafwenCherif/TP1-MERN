@@ -1,0 +1,214 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue
+}
+
+\definecolor{codegray}{gray}{0.95}
+\definecolor{commentgreen}{rgb}{0.0,0.45,0.0}
+
+\lstset{
+    language=JavaScript,
+    backgroundcolor=\color{codegray},
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{commentgreen},
+    stringstyle=\color{red!70!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+    frame=single,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=2
+}
+
+\title{Compte rendu -- Structuration de l'API Express}
+\author{Nom et prénom : \rule{7cm}{0.4pt}}
+\date{10 octobre 2026}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Objectifs}
+
+Le travail réalisé consiste à structurer une API Express selon le principe de séparation des
+responsabilités (Separation of Concerns, SoC). La logique des domaines \texttt{articles} et
+\texttt{users} est placée dans des contrôleurs dédiés, tandis que les routeurs associent les
+méthodes HTTP aux fonctions correspondantes.
+
+Les fonctionnalités réalisées sont les suivantes :
+\begin{itemize}
+    \item extraction de la logique des articles dans un contrôleur et un routeur ;
+    \item ajout des opérations PUT et DELETE pour les articles ;
+    \item extraction de la logique des utilisateurs dans un contrôleur et un routeur ;
+    \item validation réutilisable du nom et de l'adresse email dans un module \texttt{utils}.
+\end{itemize}
+
+\section{Réponses aux encadrés « Prédisez »}
+
+\subsection{Prédiction 1 -- La réponse des articles après la refactorisation}
+
+\textbf{Prédiction :} la réponse de \texttt{GET /api/articles} ne changera pas après la
+refactorisation.
+
+\textbf{Justification :} le déplacement de la logique depuis \texttt{server.js} vers
+\texttt{controllers/articleController.js} ne modifie ni les données initiales, ni le format de
+la réponse, ni l'URL publique. Le routeur est simplement monté avec le même préfixe
+\texttt{/api/articles}. Le client extérieur ne voit donc aucune différence ; seule
+l'organisation interne du code change.
+
+\subsection{Prédiction 2 -- Type du paramètre d'identifiant}
+
+\textbf{Prédiction :} dans une route comme \texttt{/api/articles/2} ou \texttt{/api/users/2},
+\texttt{req.params.id} est une chaîne de caractères, donc sa valeur est \texttt{"2"} et non le
+nombre \texttt{2}.
+
+\textbf{Justification :} les paramètres de route Express sont reçus sous forme de chaînes. Le
+code utilise donc \texttt{Number(req.params.id)} avant de comparer l'identifiant avec les
+identifiants numériques stockés dans les tableaux. Cette conversion permet à \texttt{find} ou
+\texttt{findIndex} de retrouver correctement la ressource.
+
+\section{Captures Postman -- Domaine articles}
+
+Les figures suivantes sont des emplacements réservés. Il faut remplacer le contenu vide de
+\texttt{\\includegraphics} par le chemin de chaque capture d'écran avant la compilation finale.
+
+\subsection{Mise à jour réussie}
+
+Requête : \texttt{PUT /api/articles/2}. Le serveur doit répondre avec le statut \texttt{200 OK}
+et retourner l'article modifié.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Mise à jour réussie de l'article 2 avec PUT /api/articles/2.}
+    \label{fig:article-put-success}
+\end{figure}
+
+\subsection{Recherche d'un article inexistant}
+
+Requête : \texttt{GET /api/articles/99}. Le serveur doit répondre avec le statut
+\texttt{404 Not Found}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Erreur 404 lors de la recherche d'un article inexistant.}
+    \label{fig:article-get-404}
+\end{figure}
+
+\subsection{Suppression réussie}
+
+Requête : \texttt{DELETE /api/articles/1}. Le serveur doit répondre avec le statut
+\texttt{200 OK} et confirmer la suppression.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Suppression réussie de l'article 1 avec DELETE /api/articles/1.}
+    \label{fig:article-delete-success}
+\end{figure}
+
+\section{Captures Postman -- Domaine users}
+
+\subsection{Liste complète des utilisateurs}
+
+Requête : \texttt{GET /api/users}. La réponse contient les deux utilisateurs fictifs avec leurs
+champs \texttt{id}, \texttt{name}, \texttt{email} et \texttt{role}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Liste complète des utilisateurs avec GET /api/users.}
+    \label{fig:user-get-all}
+\end{figure}
+
+\subsection{Création valide}
+
+Requête : \texttt{POST /api/users} avec un corps JSON valide :
+
+\begin{lstlisting}[language=json]
+{
+  "name": "Alex",
+  "email": "alex@example.com",
+  "role": "reader"
+}
+\end{lstlisting}
+
+Le serveur doit répondre avec le statut \texttt{201 Created}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Création réussie d'un utilisateur avec POST /api/users et statut 201.}
+    \label{fig:user-post-success}
+\end{figure}
+
+\subsection{Email invalide}
+
+Requête : \texttt{POST /api/users} avec un email ne contenant pas les caractères requis, par
+exemple \texttt{ayaexample.com}. Le serveur doit répondre avec le statut \texttt{400 Bad
+Request} et un message explicite.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{}
+    \caption{Erreur 400 lors de la création d'un utilisateur avec un email invalide.}
+    \label{fig:user-post-invalid-email}
+\end{figure}
+
+\section{Architecture de l'application}
+
+Le fichier \texttt{server.js} monte les deux routeurs :
+
+\begin{lstlisting}
+app.use('/api/articles', articleRoutes);
+app.use('/api/users', userRoutes);
+\end{lstlisting}
+
+Le routeur des articles utilise le contrôleur des articles et le routeur des utilisateurs utilise
+le contrôleur des utilisateurs. Les données sont conservées en mémoire ; elles sont réinitialisées
+au redémarrage du serveur.
+
+\section{Code source demandé}
+
+\subsection{controllers/userController.js}
+
+\lstinputlisting{controllers/userController.js}
+
+\subsection{routes/userRoutes.js}
+
+\lstinputlisting{routes/userRoutes.js}
+
+\subsection{utils/validators.js}
+
+\lstinputlisting{utils/validators.js}
+
+\subsection{server.js}
+
+\lstinputlisting{server.js}
+
+\section{Conclusion}
+
+La logique des articles et des utilisateurs est maintenant organisée par domaine. Les contrôleurs
+contiennent la logique métier, les routeurs assurent l'aiguillage des requêtes et \texttt{server.js}
+conserve la configuration globale de l'application. Le module \texttt{validators.js} évite de
+répéter les règles de validation et peut être réutilisé par d'autres contrôleurs.
+
+\end{document}
