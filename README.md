@@ -90,11 +90,6 @@ Example body for request 09:
 }
 ```
 
-**Persistence check:** run requests 01 to 10, stop the server with `Ctrl+C`, restart it with `npm run dev`, then send request 11. The same article should still come back with its author populated.
 
-## Still to do for the Lab 3 submission
 
-- Configure Atlas and point `.env` at it.
-- Run the requests in Postman against Atlas.
-- Take the Atlas and Postman screenshots listed in section 8 of the report.
-- Export the report as a PDF.
+
