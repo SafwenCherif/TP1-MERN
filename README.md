@@ -1,56 +1,100 @@
-# Blog API — MERN S3
+# Blog API: Lab 3 (MongoDB, Mongoose and async/await)
 
-Express API using Mongoose and MongoDB. The project preserves the Session 2 route/controller layout and stores articles and users in MongoDB. Articles reference their authors by ObjectId; API reads use `.populate()` to include author name and email.
+This README summarizes [`Compte_rendu_S3.md`](Compte_rendu_S3.md), the Lab 3 report. The lab moves the API from in-memory arrays to MongoDB through Mongoose.
 
-## 1. Configure MongoDB
+> **Note:** the code in this repository has since been upgraded for Lab 4 (JWT authentication). Article write routes now require a token and no longer accept `authorId`, so the Lab 3 Postman requests below only work against the Lab 3 version of the code. The Lab 3 code is reproduced in the annex of the report.
 
-### Local MongoDB (current development configuration)
+## What was done in Lab 3
 
-The local `.env` currently points to the MongoDB service on this machine:
+- **Persistence:** users and articles are stored in MongoDB instead of JavaScript arrays, so data survives a server restart.
+- **Connection:** `config/db.js` opens the connection from `MONGODB_URI`, loaded from `.env` with `dotenv`. `server.js` only starts listening once the connection succeeds. `.env` is git-ignored and `.env.example` is a credential-free template.
+- **User schema** (`models/User.js`):
+  - `name` is required.
+  - `email` is required, unique, lowercase and checked by a regex.
+  - `age` must be between 4 and 120.
+  - `role` is `user` or `admin`, defaulting to `user`.
+  - `bio` has a maximum of 200 characters and `phone` must be 8 digits (exercise 1).
+  - `timestamps: true` adds `createdAt` and `updatedAt`.
+- **Article schema** (`models/Article.js`): `title`, `content` and `author`. `author` is an ObjectId with `ref: 'User'`, a one-to-many relation (one user, many articles).
+- **Population:** article reads use `.populate('author', 'name email')`, so the author appears as an object instead of an id.
+- **Async controllers:** every operation uses `async/await` inside `try/catch`.
+- **Error handling:**
 
-```env
-PORT=3000
-MONGODB_URI=mongodb://127.0.0.1:27017/blog_api
-```
+  | Case | Status |
+  |---|---|
+  | Created | `201` |
+  | Mongoose validation error | `400` |
+  | Duplicate email | `409` |
+  | Resource not found | `404` |
+  | Malformed ObjectId (`CastError`, exercise 2) | `400` with `Identifiant de ressource invalide (format ObjectId attendu)` |
 
-The `.env` file is ignored by Git. The local `mongod` service must be running; verify with:
+- **Referential integrity** (exercise 1): `DELETE /api/users/:id` returns `400` ("Impossible de supprimer un utilisateur ayant des articles publies") if the user still has articles.
 
-```bash
-mongosh "mongodb://127.0.0.1:27017" --eval 'db.runCommand({ ping: 1 })'
-```
-
-### MongoDB Atlas (required by the S3 handout)
-
-1. Create an Atlas project and an M0 cluster.
-2. Under **Database Access**, create a database user with read/write access.
-3. Under **Network Access**, allow your current public IP (the handout permits `0.0.0.0/0` for lab use; restrict this outside a temporary lab).
-4. In **Database → Connect → Drivers**, copy the Node.js URI. Replace the local `MONGODB_URI` value in `.env` with that URI and select the `blogDB` database in its path.
-5. URL-encode special characters in the database user's password. Never commit `.env` or expose its URI in screenshots.
-
-`.env.example` is a credential-free template. `dotenv` loads `.env` when the server and seed script start.
-
-## 2. Install, migrate/seed, and run
-
-From the project directory:
+## Setup
 
 ```bash
 npm install
-npm run seed
 npm run dev
 ```
 
-`npm run seed` inserts sample users/articles if needed and migrates the earlier local article records from a text author to a User ObjectId reference. It is safe to re-run. The server listens at `http://localhost:3000` only after its MongoDB connection succeeds.
+`.env` needs a `MONGODB_URI`. The current setup uses local MongoDB (`mongodb://127.0.0.1:27017/blog_api`). The lab asks for MongoDB Atlas, where you put your Atlas URI in `.env` instead, keeping the database name `blogDB`.
 
-The API's CRUD routes are:
+`npm run seed` is an optional script that inserts sample users and articles. It is not part of the lab.
 
-- `GET /api/users`, `GET /api/users/:id`, `POST /api/users`, `DELETE /api/users/:id`
-- `GET /api/articles`, `GET /api/articles/:id`, `POST /api/articles`, `PUT /api/articles/:id`, `DELETE /api/articles/:id`
-- `POST /contact`
+## Testing in Postman
 
-Use MongoDB `_id` values, not the old numeric IDs. Article POST bodies use `title`, `content`, and `authorId` (the author's MongoDB `_id`). A user with articles cannot be deleted until those articles have been removed.
+Import [`S3_Postman_Collection.json`](S3_Postman_Collection.json). It has 17 numbered requests with status assertions, and the base URL is `http://localhost:3000`. Send them **one by one, in order**. The collection generates a unique email and stores `userId` and `articleId` automatically.
 
-## 3. Postman
+For `POST` and `PUT` requests, use **Body → raw → JSON**.
 
-Import [`S3_Postman_Collection.json`](S3_Postman_Collection.json) into Postman. Requests are numbered in execution order and include assertions for status codes, validation, unique email, `.populate()`, malformed ObjectIds, and referential integrity. Run requests one by one in order. After request 10, stop and restart the API (`Ctrl+C`, then `npm run dev`); then run request 11 to confirm the new article persisted.
+| # | Request | Expected |
+|--:|---|---|
+| 01 | `GET /api/users` | `200`, array of users |
+| 02 | `POST /api/users` (valid user) | `201`, copy the `_id` |
+| 03 | `POST /api/users` (bad email, `age: 2`, bad role and phone) | `400` |
+| 04 | `POST /api/users` (same email as 02) | `409` |
+| 05 | `GET /api/users/{{userId}}` | `200` |
+| 06 | `GET /api/users/abc` | `400` (CastError) |
+| 07 | `POST /api/articles` (title only) | `400` |
+| 08 | `POST /api/articles` (unknown `authorId`) | `404` |
+| 09 | `POST /api/articles` (linked to `{{userId}}`) | `201`, `author` is populated |
+| 10 | `GET /api/articles` | `200`, authors populated |
+| 11 | `GET /api/articles/{{articleId}}` | `200` after a restart (persistence proof) |
+| 12 | `PUT /api/articles/{{articleId}}` | `200`, author still populated |
+| 13 | `GET /api/articles/abc` | `400` (CastError) |
+| 14 | `GET /api/articles/000000000000000000000001` | `404` |
+| 15 | `DELETE /api/users/{{userId}}` | `400`, user still has an article |
+| 16 | `DELETE /api/articles/{{articleId}}` | `200` |
+| 17 | `DELETE /api/users/{{userId}}` | `200` |
 
-Save real Postman and Atlas screenshots under `postman screenshots/Lesson_3/`. Do not include passwords, connection URIs, or other secrets in captures.
+Example body for request 02:
+
+```json
+{
+  "name": "Aya Ben Salah",
+  "email": "aya@polytechnique.tn",
+  "age": 22,
+  "role": "admin",
+  "bio": "Étudiante en développement MERN.",
+  "phone": "55123456"
+}
+```
+
+Example body for request 09:
+
+```json
+{
+  "title": "Maîtriser MongoDB Atlas et Mongoose",
+  "content": "Mongoose structure les documents et populate reconstitue la relation avec l'auteur.",
+  "authorId": "<paste the user _id here>"
+}
+```
+
+**Persistence check:** run requests 01 to 10, stop the server with `Ctrl+C`, restart it with `npm run dev`, then send request 11. The same article should still come back with its author populated.
+
+## Still to do for the Lab 3 submission
+
+- Configure Atlas and point `.env` at it.
+- Run the requests in Postman against Atlas.
+- Take the Atlas and Postman screenshots listed in section 8 of the report.
+- Export the report as a PDF.
