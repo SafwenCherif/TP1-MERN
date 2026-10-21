@@ -1,0 +1,178 @@
+{
+  "info": {
+    "_postman_id": "7a6531b1-40c1-4c5f-9411-20a95f0b0003",
+    "name": "S3 - MongoDB Mongoose Blog API",
+    "description": "Sequential end-to-end tests for the S3 lab. Run the collection in order. It creates a unique user, links an article to that user, verifies populate and persistence, then verifies referential-integrity deletion rules. Base URL defaults to localhost:3000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "userId", "value": "" },
+    { "key": "userEmail", "value": "" },
+    { "key": "articleId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 - GET all users (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/users", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.test('Response is a user array', () => pm.expect(pm.response.json()).to.be.an('array'));" ] } }]
+    },
+    {
+      "name": "02 - POST create valid user (201)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Aya Ben Salah\",\n  \"email\": \"{{userEmail}}\",\n  \"age\": 22,\n  \"role\": \"admin\",\n  \"bio\": \"Étudiante en développement MERN.\",\n  \"phone\": \"55123456\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/users", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users"] }
+      },
+      "event": [
+        { "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["const runId = Date.now().toString();", "pm.collectionVariables.set('userEmail', `safwen.s3.${runId}@example.com`);"] } },
+        { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 201', () => pm.response.to.have.status(201));", "const user = pm.response.json();", "pm.expect(user).to.have.property('_id');", "pm.collectionVariables.set('userId', user._id);", "pm.test('Mongoose defaults and timestamps are returned', () => { pm.expect(user.role).to.eql('admin'); pm.expect(user.createdAt).to.exist; });"] } }
+      ]
+    },
+    {
+      "name": "03 - POST user with invalid email/age/role/phone (400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Invalid User\",\n  \"email\": \"not-an-email\",\n  \"age\": 2,\n  \"role\": \"author\",\n  \"phone\": \"123\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/users", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Invalid document is rejected with 400', () => pm.response.to.have.status(400));", "pm.expect(pm.response.json()).to.have.property('message');"] } }]
+    },
+    {
+      "name": "04 - POST duplicate email (409)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Duplicate User\",\n  \"email\": \"{{userEmail}}\",\n  \"age\": 22,\n  \"role\": \"admin\",\n  \"phone\": \"55123456\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/users", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Duplicate email returns 409 Conflict', () => pm.response.to.have.status(409));"] } }]
+    },
+    {
+      "name": "05 - GET created user by ObjectId (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/users/{{userId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users", "{{userId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.expect(pm.response.json()._id).to.eql(pm.collectionVariables.get('userId'));"] } }]
+    },
+    {
+      "name": "06 - GET user with malformed ObjectId (400)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/users/abc", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users", "abc"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('CastError is mapped to 400', () => pm.response.to.have.status(400));", "pm.expect(pm.response.json().message).to.eql('Identifiant de ressource invalide (format ObjectId attendu)');"] } }]
+    },
+    {
+      "name": "07 - POST article missing required data (400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"title\": \"Missing content and author\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/articles", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Missing fields return 400', () => pm.response.to.have.status(400));"] } }]
+    },
+    {
+      "name": "08 - POST article with unknown author (404)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"title\": \"Unknown author article\",\n  \"content\": \"This must not be saved.\",\n  \"authorId\": \"000000000000000000000001\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/articles", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Unknown author returns 404', () => pm.response.to.have.status(404));"] } }]
+    },
+    {
+      "name": "09 - POST article linked to created user (201)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"title\": \"Maîtriser MongoDB Atlas et Mongoose\",\n  \"content\": \"Mongoose structure les documents et populate reconstitue leur relation avec l’auteur.\",\n  \"authorId\": \"{{userId}}\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/articles", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 201', () => pm.response.to.have.status(201));", "const article = pm.response.json();", "pm.collectionVariables.set('articleId', article._id);", "pm.test('Author is populated', () => { pm.expect(article.author).to.be.an('object'); pm.expect(article.author.name).to.eql('Aya Ben Salah'); pm.expect(article.author.email).to.eql(pm.collectionVariables.get('userEmail')); });"] } }]
+    },
+    {
+      "name": "10 - GET all articles with populated authors (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/articles", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "const articles = pm.response.json();", "pm.expect(articles).to.be.an('array');", "const created = articles.find(article => article._id === pm.collectionVariables.get('articleId'));", "pm.expect(created).to.exist;", "pm.expect(created.author).to.be.an('object');", "pm.expect(created.author).to.have.property('name');", "pm.expect(created.author).to.have.property('email');"] } }]
+    },
+    {
+      "name": "11 - GET created article by ObjectId (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/articles/{{articleId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles", "{{articleId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.expect(pm.response.json().author).to.be.an('object');"] } }]
+    },
+    {
+      "name": "12 - PUT update article (200)",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"title\": \"Article Mongoose mis à jour\",\n  \"content\": \"Le document est mis à jour et son auteur reste peuplé.\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "http://localhost:3000/api/articles/{{articleId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles", "{{articleId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Status is 200', () => pm.response.to.have.status(200));", "pm.expect(pm.response.json().title).to.eql('Article Mongoose mis à jour');", "pm.expect(pm.response.json().author).to.be.an('object');"] } }]
+    },
+    {
+      "name": "13 - GET article with malformed ObjectId (400)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/articles/abc", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles", "abc"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('CastError is mapped to 400', () => pm.response.to.have.status(400));", "pm.expect(pm.response.json().message).to.eql('Identifiant de ressource invalide (format ObjectId attendu)');"] } }]
+    },
+    {
+      "name": "14 - GET valid but missing article ObjectId (404)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/articles/000000000000000000000001", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles", "000000000000000000000001"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Well-formed but missing ID returns 404', () => pm.response.to.have.status(404));"] } }]
+    },
+    {
+      "name": "15 - DELETE linked user is blocked (400)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/users/{{userId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users", "{{userId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('User with published articles cannot be deleted', () => pm.response.to.have.status(400));", "pm.expect(pm.response.json().message).to.eql('Impossible de supprimer un utilisateur ayant des articles publies');"] } }]
+    },
+    {
+      "name": "16 - DELETE article (200)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/articles/{{articleId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "articles", "{{articleId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Article deleted', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "17 - DELETE now-unreferenced user (200)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "http://localhost:3000/api/users/{{userId}}", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["api", "users", "{{userId}}"] }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('Unreferenced user deleted', () => pm.response.to.have.status(200));"] } }]
+    }
+  ]
+}

@@ -1,102 +1,126 @@
-let articles = [
-  { id: 1, title: 'Welcome to the blog', author: 'Admin' },
-  { id: 2, title: 'My first Express server', author: 'Aya' },
-  { id: 3, title: 'Testing an API with Postman', author: 'Aya' }
-];
+const Article = require('../models/Article');
 
-let nextArticleId = 4;
-
-const getAllArticles = (req, res) => {
-  const { author } = req.query;
-  const result = author
-    ? articles.filter(article => article.author === author)
-    : articles;
-
-  res.status(200).json({ total: result.length, articles: result });
+const getAllArticles = async (req, res) => {
+  try {
+    const articles = await Article.find().populate('author', 'name email role');
+    res.status(200).json(articles);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
-const getArticleById = (req, res) => {
-  const id = Number(req.params.id);
-  const article = articles.find(item => item.id === id);
+const getArticleById = async (req, res) => {
+  try {
+    const article = await Article.findById(req.params.id)
+      .populate('author', 'name email role');
+    if (!article) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
 
-  if (!article) {
-    return res.status(404).json({
-      error: `Article ${req.params.id} not found`
-    });
+    res.status(200).json(article);
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid article ID format' });
+    }
+    res.status(500).json({ message: err.message });
   }
-
-  res.status(200).json(article);
 };
 
-const createArticle = (req, res) => {
-  const { title, author } = req.body ?? {};
-
-  if (typeof title !== 'string' || !title.trim() ||
-      typeof author !== 'string' || !author.trim()) {
-    return res.status(400).json({
-      error: 'Title and author are required'
-    });
+const getMyArticles = async (req, res) => {
+  try {
+    const articles = await Article.find({ author: req.user._id })
+      .populate('author', 'name email role');
+    res.status(200).json(articles);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  const newArticle = {
-    id: nextArticleId,
-    title: title.trim(),
-    author: author.trim()
-  };
-
-  nextArticleId += 1;
-  articles.push(newArticle);
-
-  res.status(201).json({
-    message: 'Article created',
-    article: newArticle
-  });
 };
 
-const updateArticle = (req, res) => {
-  const id = Number(req.params.id);
-  const { title, author } = req.body ?? {};
-  const index = articles.findIndex(article => article.id === id);
+const createArticle = async (req, res) => {
+  try {
+    const { title, content } = req.body;
+    if (!title || !content) {
+      return res.status(400).json({
+        message: 'Title and content are required'
+      });
+    }
 
-  if (index === -1) {
-    return res.status(404).json({
-      error: `Article ${req.params.id} not found`
+    const newArticle = await Article.create({
+      title,
+      content,
+      author: req.user._id
     });
+    const populated = await newArticle.populate('author', 'name email role');
+    res.status(201).json(populated);
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    res.status(500).json({ message: err.message });
   }
-
-  if (typeof title === 'string' && title.trim()) {
-    articles[index].title = title.trim();
-  }
-  if (typeof author === 'string' && author.trim()) {
-    articles[index].author = author.trim();
-  }
-
-  res.status(200).json({
-    message: 'Article updated',
-    article: articles[index]
-  });
 };
 
-const deleteArticle = (req, res) => {
-  const id = Number(req.params.id);
-  const articleExists = articles.some(article => article.id === id);
+const updateArticle = async (req, res) => {
+  try {
+    const article = await Article.findById(req.params.id);
+    if (!article) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
 
-  if (!articleExists) {
-    return res.status(404).json({
-      error: `Unable to delete: article ${req.params.id} not found`
-    });
+    const isOwner = article.author.toString() === req.user._id.toString();
+    if (!isOwner && req.user.role !== 'admin') {
+      return res.status(403).json({
+        message: 'Forbidden: you are not the author of this article'
+      });
+    }
+
+    article.title = req.body.title || article.title;
+    article.content = req.body.content || article.content;
+    const updated = await article.save();
+    const populated = await updated.populate('author', 'name email role');
+    res.status(200).json(populated);
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid article ID format' });
+    }
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    res.status(500).json({ message: err.message });
   }
+};
 
-  articles = articles.filter(article => article.id !== id);
+const deleteArticle = async (req, res) => {
+  try {
+    const article = await Article.findById(req.params.id);
+    if (!article) {
+      return res.status(404).json({ message: 'Article not found' });
+    }
 
-  res.status(200).json({
-    message: `Article ${req.params.id} deleted successfully`
-  });
+    const isOwner = article.author.toString() === req.user._id.toString();
+    if (!isOwner && req.user.role !== 'admin') {
+      return res.status(403).json({
+        message: 'Forbidden: you are not the author of this article'
+      });
+    }
+
+    await Article.findByIdAndDelete(req.params.id);
+    res.status(200).json({
+      message: 'Article deleted successfully',
+      id: req.params.id
+    });
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid article ID format' });
+    }
+    res.status(500).json({ message: err.message });
+  }
 };
 
 module.exports = {
   getAllArticles,
   getArticleById,
+  getMyArticles,
   createArticle,
   updateArticle,
   deleteArticle

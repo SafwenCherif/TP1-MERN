@@ -1,85 +1,168 @@
-const { estNonVide, estEmailValide } = require('../utils/validators');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
-let users = [
-  { id: 1, name: 'Aya', email: 'aya@example.com', role: 'author' },
-  { id: 2, name: 'Admin', email: 'admin@example.com', role: 'admin' }
-];
+const generateToken = (id, role) => jwt.sign(
+  { id, role },
+  process.env.JWT_SECRET,
+  { expiresIn: '1d' }
+);
 
-let nextUserId = 3;
+const registerUser = async (req, res) => {
+  try {
+    const { name, email, password, age } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: 'Name, email, and password are required'
+      });
+    }
 
-const getAllUsers = (req, res) => {
-  const { role } = req.query;
-  const result = role
-    ? users.filter(user => user.role === role)
-    : users;
+    const normalizedEmail = email.trim().toLowerCase();
+    const userExists = await User.findOne({ email: normalizedEmail });
+    if (userExists) {
+      return res.status(409).json({ message: 'Email is already registered' });
+    }
 
-  res.status(200).json(result);
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    const user = await User.create({
+      name,
+      email: normalizedEmail,
+      password: hashedPassword,
+      age,
+      role: 'user'
+    });
+
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user._id, user.role)
+    });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(409).json({ message: 'Email is already registered' });
+    }
+    res.status(500).json({ message: err.message });
+  }
 };
 
-const getUserById = (req, res) => {
-  const id = Number(req.params.id);
-  const user = users.find(item => item.id === id);
+const loginUser = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required'
+      });
+    }
 
-  if (!user) {
-    return res.status(404).json({
-      error: `User ${req.params.id} not found`
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user._id, user.role)
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  res.status(200).json(user);
 };
 
-const createUser = (req, res) => {
-  const { name, email, role } = req.body ?? {};
-
-  if (!estNonVide(name)) {
-    return res.status(400).json({
-      error: 'Name is required and cannot be empty'
-    });
+const getUserProfile = async (req, res) => {
+  try {
+    res.status(200).json(req.user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  if (!estEmailValide(email)) {
-    return res.status(400).json({
-      error: 'Email must be valid and contain @ and .'
-    });
-  }
-
-  const newUser = {
-    id: nextUserId,
-    name: name.trim(),
-    email: email.trim(),
-    role: typeof role === 'string' && role.trim() ? role.trim() : 'user'
-  };
-
-  nextUserId += 1;
-  users.push(newUser);
-
-  res.status(201).json({
-    message: 'User created',
-    user: newUser
-  });
 };
 
-const deleteUser = (req, res) => {
-  const id = Number(req.params.id);
-  const userExists = users.some(user => user.id === id);
-
-  if (!userExists) {
-    return res.status(404).json({
-      error: `Unable to delete: user ${req.params.id} not found`
-    });
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.status(200).json(users);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+};
 
-  users = users.filter(user => user.id !== id);
+const updatePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({
+        message: 'oldPassword and newPassword are required'
+      });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        message: 'Password must be at least 6 characters long'
+      });
+    }
 
-  res.status(200).json({
-    message: `User ${req.params.id} deleted successfully`
-  });
+    const user = await User.findById(req.user._id);
+    const passwordMatches = await bcrypt.compare(oldPassword, user.password);
+    if (!passwordMatches) {
+      return res.status(401).json({ message: 'Old password is incorrect' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    res.status(200).json({ message: 'Password updated successfully' });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const updateUserRole = async (req, res) => {
+  try {
+    const { role } = req.body;
+    if (role !== 'admin') {
+      return res.status(400).json({ message: 'Role must be admin' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.role = role;
+    await user.save();
+    res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    });
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid user ID format' });
+    }
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    res.status(500).json({ message: err.message });
+  }
 };
 
 module.exports = {
+  registerUser,
+  loginUser,
+  getUserProfile,
   getAllUsers,
-  getUserById,
-  createUser,
-  deleteUser
+  updatePassword,
+  updateUserRole
 };
